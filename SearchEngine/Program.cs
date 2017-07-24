@@ -17,6 +17,8 @@ namespace SearchEngine
             var weightList = new Dictionary<string, Dictionary<string, double>>(); // Dictionary<word, Dictionary<filename, weight>>
             var invertedIndex = new Dictionary<string, List<string>>(); // Dictionary<word, List<filename orderby weight>>
 
+            var lockObject = new Object();
+
             Console.WriteLine("Calculating Term Frequency ...");
 
             var targetFiles = Directory.GetFiles(@"..\..\data\select1000", @"*.txt");
@@ -36,6 +38,35 @@ namespace SearchEngine
 
                     int wordCount = 0;
 
+                    Parallel.ForEach(File.ReadLines(fileName), line =>
+                    {
+                        var node = t.ParseToNode(line);
+                        while (node != null)
+                        {
+                            if (node.CharType > 0)
+                            {
+                                lock (lockObject)
+                                {
+                                    ++wordCount;
+                                }
+
+                                var normalized = node.Feature.Split(',')[6];
+                                var originalForm = (normalized == null || normalized == "" || normalized == "*") ? node.Surface : normalized;
+                                // 原形がないものは表装文字を代表とし、原形がある場合はそちらを代表とする
+
+                                lock (wordList)
+                                {
+                                    if (!wordList.ContainsKey(originalForm))
+                                    {
+                                        wordList[originalForm] = 0;
+                                    }
+                                    ++wordList[originalForm];
+                                }
+                            }
+                            node = node.Next;
+                        }
+                    });
+                    /*
                     var file = new StreamReader(fileName);
                     string line;
                     while ((line = file.ReadLine()) != null)
@@ -59,7 +90,7 @@ namespace SearchEngine
                             }
                             node = node.Next;
                         }
-                    }
+                    }*/
 
                     Parallel.ForEach(wordList.Keys, word =>
                     {
