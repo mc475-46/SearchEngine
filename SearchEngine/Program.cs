@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Dynamic;
 using System.Linq;
@@ -18,90 +19,127 @@ namespace SearchEngine
 
             Console.WriteLine("Calculating Term Frequency ...");
 
-            var targetFiles = Directory.GetFiles(@"..\..\data\select10", @"*.txt");
-            Parallel.ForEach(targetFiles, fileName =>
+            var targetFiles = Directory.GetFiles(@"..\..\data\select1000", @"*.txt");
+
+            MeCabParam param = new MeCabParam();
+            param.DicDir = @"..\..\lib\dic\ipadic";
+            MeCabTagger t = MeCabTagger.Create(param);
+
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
             {
-                Console.WriteLine("Processing " + fileName);
-
-                var wordList = new Dictionary<string, int>(); // 単語数カウント用リスト
-
-                int wordCount = 0;
-
-                MeCabParam param = new MeCabParam();
-                param.DicDir = @"..\..\lib\dic\ipadic";
-                MeCabTagger t = MeCabTagger.Create(param);
-
-                var file = new StreamReader(fileName);
-                string line;
-                while ((line = file.ReadLine()) != null)
+                Parallel.ForEach(targetFiles, fileName =>
                 {
-                    var node = t.ParseToNode(line);
-                    while (node != null)
+                    Console.WriteLine("Processing " + fileName);
+
+                    var wordList = new Dictionary<string, int>(); // 単語数カウント用リスト
+
+                    int wordCount = 0;
+
+                    var file = new StreamReader(fileName);
+                    string line;
+                    while ((line = file.ReadLine()) != null)
                     {
-                        if (node.CharType > 0)
+                        var node = t.ParseToNode(line);
+                        while (node != null)
                         {
-                            ++wordCount;
-
-                            var originalForm = (node.Feature.Split(',')[6] == null || node.Feature.Split(',')[6] == "" || node.Feature.Split(',')[6] == "*") ? node.Surface : node.Feature.Split(',')[6];
-                            // 原形がないものは表装文字を代表とし、原形がある場合はそちらを代表とする
-
-                            if (!wordList.ContainsKey(originalForm))
+                            if (node.CharType > 0)
                             {
-                                wordList[originalForm] = 0;
+                                ++wordCount;
+
+                                var normalized = node.Feature.Split(',')[6];
+                                var originalForm = (normalized == null || normalized == "" || normalized == "*") ? node.Surface : normalized;
+                                // 原形がないものは表装文字を代表とし、原形がある場合はそちらを代表とする
+
+                                if (!wordList.ContainsKey(originalForm))
+                                {
+                                    wordList[originalForm] = 0;
+                                }
+                                ++wordList[originalForm];
                             }
-                            ++wordList[originalForm];
+                            node = node.Next;
                         }
-                        node = node.Next;
                     }
-                }
 
-                Parallel.ForEach(wordList.Keys, word =>
-                {
-                    lock (wordList)
+                    Parallel.ForEach(wordList.Keys, word =>
                     {
-                        if (!weightList.ContainsKey(word)) weightList[word] = new Dictionary<string, double>();
-                        weightList[word][fileName] = wordList[word] / (double)wordCount;
-                    }
-                });
+                        lock (weightList)
+                        {
+                            if (!weightList.ContainsKey(word)) weightList[word] = new Dictionary<string, double>();
+                            weightList[word][fileName] = wordList[word] / (double)wordCount;
+                        }
+                    });
 
-            });
-
-            Console.WriteLine("Calculating Inverse Document Frequency and Recording Weight to weightList ...");
-            Parallel.For(0, weightList.Keys.Count, i =>
-            {
-                var word = weightList.Keys.ToArray()[i];
-                Parallel.For(0, weightList[word].Keys.Count, j =>
-                {
-                    var fileName = weightList[word].Keys.ToArray()[j];
-                    weightList[word][fileName] *= Math.Log((double)targetFiles.Length / weightList[word].Count, 2) + 1;
                 });
-            });
+            }
+            sw.Stop();
+            Console.WriteLine($"{sw.ElapsedMilliseconds} msec Elpsed.");
 
             Console.WriteLine("Constructing Inverted Index ...");
-            Parallel.ForEach(weightList.Keys, word =>
+            sw.Restart();
             {
-                invertedIndex[word] = weightList[word].Keys.OrderByDescending(fileName => weightList[word][fileName]).ThenBy(fileName => fileName).ToList();
-                if (!invertedIndex.ContainsKey(word))
-                {
-                    Console.WriteLine($"{word}は転置インデックスに含まれていません");
-                }
-                if (word == null)
-                {
-                    Console.WriteLine("単語が空です");
-                }
-            });
+                /*
+                invertedIndex = weightList.Keys
+                    .AsParallel()
+                    .ToDictionary(
+                        word => word,
+                        word => weightList[word].Keys
+                            .OrderByDescending(fileName => weightList[word][fileName])
+                            .ThenBy(fileName => fileName)
+                            .ToList());
+                */
 
-            foreach(var hoge in invertedIndex.Keys)
-            {
-                Console.Write($"{hoge}\t");
-                foreach(var fuga in invertedIndex[hoge])
+                Parallel.ForEach(weightList.Keys, word =>
                 {
-                    Console.Write($"{fuga} ");
-                }
-                Console.WriteLine();
+                    var ks = weightList[word].Keys.OrderByDescending(fileName => weightList[word][fileName]).ThenBy(fileName => fileName).ToList();
+                    lock (invertedIndex)
+                    {
+                        invertedIndex[word] = ks;
+                    }
+
+                    if (!invertedIndex.ContainsKey(word))
+                    {
+                        Console.WriteLine($"{word}は転置インデックスに含まれていません");
+                    }
+                    if (word == null)
+                    {
+                        Console.WriteLine("単語が空です");
+                    }
+                });
             }
-            
-            Console.WriteLine("Successfully constructing Inverted Index");
+            sw.Stop();
+            Console.WriteLine($"{sw.ElapsedMilliseconds} msec Elpsed.");
+
+            Console.WriteLine("Calculating Inverse Document Frequency and Recording Weight to weightList ...");
+
+            sw.Restart();
+            {
+                
+                weightList = weightList.AsParallel()
+                    .ToDictionary(
+                        kv1 => kv1.Key,
+                        kv1 =>
+                        {
+                            var idf = Math.Log(targetFiles.Length / kv1.Value.Count, 2) + 1;
+                            return kv1.Value.ToDictionary(kv2 => kv2.Key, kv2 => kv2.Value * idf);
+                        });
+            }
+            sw.Stop();
+            Console.WriteLine($"{sw.ElapsedMilliseconds} msec Elpsed.");
+
+            StreamWriter writer = new StreamWriter(@"dump.txt", false, Encoding.GetEncoding("utf-8"));
+            foreach (var word in invertedIndex.Keys)
+            {
+                writer.Write($"{word}\t");
+                foreach (var filename in invertedIndex[word])
+                {
+                    writer.Write($"({filename}, {weightList[word][filename]}), ");
+                }
+                writer.WriteLine();
+            }
+            writer.Close();
+
+            Console.WriteLine("Successfully finishing all procedures.");
 
             Console.Read();
         }
