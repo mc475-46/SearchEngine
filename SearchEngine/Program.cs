@@ -17,7 +17,6 @@ namespace SearchEngine
             var weightList = new Dictionary<string, Dictionary<string, double>>(); // Dictionary<word, Dictionary<filename, weight>>
             var invertedIndex = new Dictionary<string, List<string>>(); // Dictionary<word, List<filename orderby weight>>
 
-
             Console.WriteLine("Calculating Term Frequency ...");
 
             var targetFiles = Directory.GetFiles(@"..\..\data\select10000", @"*.txt");
@@ -34,7 +33,6 @@ namespace SearchEngine
                     Console.WriteLine("Processing " + fileName);
 
                     var wordList = new Dictionary<string, int>(); // 単語数カウント用リスト
-
                     int wordCount = 0;
                     var lockObject = new Object();
 
@@ -66,31 +64,6 @@ namespace SearchEngine
                             node = node.Next;
                         }
                     });
-                    /*
-                    var file = new StreamReader(fileName);
-                    string line;
-                    while ((line = file.ReadLine()) != null)
-                    {
-                        var node = t.ParseToNode(line);
-                        while (node != null)
-                        {
-                            if (node.CharType > 0)
-                            {
-                                ++wordCount;
-
-                                var normalized = node.Feature.Split(',')[6];
-                                var originalForm = (normalized == null || normalized == "" || normalized == "*") ? node.Surface : normalized;
-                                // 原形がないものは表装文字を代表とし、原形がある場合はそちらを代表とする
-
-                                if (!wordList.ContainsKey(originalForm))
-                                {
-                                    wordList[originalForm] = 0;
-                                }
-                                ++wordList[originalForm];
-                            }
-                            node = node.Next;
-                        }
-                    }*/
 
                     Parallel.ForEach(wordList.Keys, word =>
                     {
@@ -100,7 +73,6 @@ namespace SearchEngine
                             weightList[word][fileName] = wordList[word] / (double)wordCount;
                         }
                     });
-
                 });
             }
             sw.Stop();
@@ -119,7 +91,6 @@ namespace SearchEngine
                             .ThenBy(fileName => fileName)
                             .ToList());
                 */
-
                 Parallel.ForEach(weightList.Keys, word =>
                 {
                     var ks = weightList[word].Keys.OrderByDescending(fileName => weightList[word][fileName]).ThenBy(fileName => fileName).ToList();
@@ -127,14 +98,10 @@ namespace SearchEngine
                     {
                         invertedIndex[word] = ks;
                     }
-
+                    
                     if (!invertedIndex.ContainsKey(word))
                     {
                         Console.WriteLine($"{word}は転置インデックスに含まれていません");
-                    }
-                    if (word == null)
-                    {
-                        Console.WriteLine("単語が空です");
                     }
                 });
             }
@@ -142,10 +109,8 @@ namespace SearchEngine
             Console.WriteLine($"{sw.ElapsedMilliseconds} msec Elpsed.");
 
             Console.WriteLine("Calculating Inverse Document Frequency and Recording Weight to weightList ...");
-
             sw.Restart();
             {
-                
                 weightList = weightList.AsParallel()
                     .ToDictionary(
                         kv1 => kv1.Key,
