@@ -17,11 +17,10 @@ namespace SearchEngine
             var weightList = new Dictionary<string, Dictionary<string, double>>(); // Dictionary<word, Dictionary<filename, weight>>
             var invertedIndex = new Dictionary<string, List<string>>(); // Dictionary<word, List<filename orderby weight>>
 
-            var lockObject = new Object();
 
             Console.WriteLine("Calculating Term Frequency ...");
 
-            var targetFiles = Directory.GetFiles(@"..\..\data\select1000", @"*.txt");
+            var targetFiles = Directory.GetFiles(@"..\..\data\select10000", @"*.txt");
 
             MeCabParam param = new MeCabParam();
             param.DicDir = @"..\..\lib\dic\ipadic";
@@ -37,6 +36,7 @@ namespace SearchEngine
                     var wordList = new Dictionary<string, int>(); // 単語数カウント用リスト
 
                     int wordCount = 0;
+                    var lockObject = new Object();
 
                     Parallel.ForEach(File.ReadLines(fileName), line =>
                     {
